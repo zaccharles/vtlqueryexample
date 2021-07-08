@@ -1,0 +1,175 @@
+service: vtlqueryexample
+
+frameworkVersion: '2'
+
+provider:
+  name: aws
+  runtime: nodejs12.x
+  lambdaHashingVersion: 20201221
+  region: eu-west-1
+
+# Dummy functions used to create most of the API Gateway REST API
+functions:
+  putFees:
+    handler: dummy.handle
+    events:
+      - http:
+          method: put
+          path: restaurants/{tenant}/{restaurantId}/fees
+  deleteFees:
+    handler: dummy.handle
+    events:
+      - http:
+          method: delete
+          path: restaurants/{tenant}/{restaurantId}/fees
+
+resources:
+  Resources:
+    # Create an example DynamoDB table
+    RestaurantFeesTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        AttributeDefinitions:
+          - AttributeName: PK
+            AttributeType: S
+          - AttributeName: SK
+            AttributeType: S
+        KeySchema:
+          - AttributeName: PK
+            KeyType: HASH
+          - AttributeName: SK
+            KeyType: RANGE
+        BillingMode: PAY_PER_REQUEST
+
+    # The AWS::ApiGateway::RestAPI, AWS::ApiGateway::Resource, and PUT/DELETE 
+    # AWS::ApiGateway::Methods are created by Serverless Framework.
+    #
+    # Here we add a GET AWS::ApiGateway::Resource to the existing AWS::ApiGateway::Method.
+    #
+    # There is a plugin (https://www.serverless.com/plugins/serverless-apigateway-service-prox)
+    # that would make this nicer, but it doesn't support DyanmoDB's Query action that we're using.
+    ApiGatewayResourceRestaurantsTenantVarRestaurantidVarFeesGet:
+      Type: AWS::ApiGateway::Method
+      Properties:
+        HttpMethod: GET
+        ResourceId: !Ref ApiGatewayResourceRestaurantsTenantVarRestaurantidVarFees
+        RestApiId: !Ref ApiGatewayRestApi
+        AuthorizationType: NONE
+        RequestParameters: # Must tell API Gateway that we want access to these request path parameters
+          method.request.path.tenant: true
+          method.request.path.restaurantId: true
+        Integration:
+          Type: AWS
+          # API Gateway will assume this IAM role in order to call DynamoDB
+          Credentials: !GetAtt ApiGatewayResourceRestaurantsTenantVarRestaurantidVarFeesGetRole.Arn
+          IntegrationHttpMethod: POST
+          PassthroughBehavior: NEVER
+          Uri: arn:aws:apigateway:${aws:region}:dynamodb:action/Query # We want to call DynamoDB's Query action
+          RequestParameters:
+            integration.request.path.tenant: method.request.path.tenant
+            integration.request.path.restaurantId: method.request.path.restaurantId
+          RequestTemplates:
+            # The request from the client will be mapped by this template before going to DyanamoDB
+            # We can specify different templates per request content type.
+            # This example matches on Content-Type application/json, but since it's a GET request, 
+            # it doesn't really matter.
+            application/json: !Sub
+              - |-
+                #set( $tenant = $util.escapeJavaScript($input.params("tenant")) )
+                #set( $restaurantId = $util.escapeJavaScript($input.params("restaurantId")) )
+                {
+                    "TableName": "${RestaurantFeesTableName}",
+                    "KeyConditionExpression": "PK = :pk",
+                    "ExpressionAttributeValues": {
+                        ":pk": {"S": "$tenant#$restaurantId"}
+                    }
+                }
+              - RestaurantFeesTableName: !Ref RestaurantFeesTable
+          IntegrationResponses:
+            - StatusCode: 200
+              SelectionPattern: 200
+              ResponseTemplates:
+                # HTTP 200 responses from DynamoDB will be mapped by this template before going to the client
+                # We can specify different templates for different HTTP status codes and Content-Types.
+                # This example matches on HTTP 200 and Content-Type: application/x-amz-json-1.0
+                application/x-amz-json-1.0: |-
+                  #set( $root = $input.path('$') )
+                  #set( $root.fees = {} )
+                  #set( $fees = $root.fees)
+                  ##
+                  #foreach( $item in $input.path('$.Items') )
+                    #if( $item.SK.S.startsWith("fee#") ) 
+                      #set( $feesKey = $item.SK.S.substring(4) )
+                      #set( $feesValue = $util.parseJson($item.Detail.S) )
+                      #set( $x = $fees.put($feesKey, $feesValue) )
+                    #elseif( $item.SK.S == "meta#deliveryModel" ) 
+                      #set( $deliveryModel = $item.Detail.S )
+                    #end
+                  #end
+                  ##
+                  #if( !$fees.containsKey("serviceFee") )
+                    #if( !$deliveryModel ) ## Default service fee for marketplace orders
+                      #set( $fees.serviceFee = 
+                        {
+                            "default": {
+                                "fixed": {
+                                    "amount": 0.5
+                                }
+                            }
+                        }
+                      )
+                    #else ## Default service fee for JET-delivered orders
+                      #set( $fees.serviceFee = 
+                        {
+                            "serviceTypes": {
+                                "collection": {
+                                    "fixed": {
+                                        "amount": 0.5
+                                    }
+                                },
+                                "delivery": {
+                                    "percentage": {
+                                        "percent": 0.05,
+                                        "minAmount": 0.5,
+                                        "maxAmount": 1.99
+                                    }
+                                }
+                            }
+                        }
+                      )
+                    #end
+                  #end
+                  ##
+                  #set( $fees.bagFee.description = "A charge for bags in delivery" )
+                  #set( $fees.serviceFee.description = "A charge for service" )
+                  ##
+                  $input.json("$.fees")
+        MethodResponses:
+          - StatusCode: 200
+
+    # Create the IAM role for API Gateway to use when calling DynamoDB
+    ApiGatewayResourceRestaurantsTenantVarRestaurantidVarFeesGetRole: 
+      Type: "AWS::IAM::Role"
+      Properties: 
+        AssumeRolePolicyDocument: 
+          Version: "2012-10-17"
+          Statement: 
+            - 
+              Effect: "Allow"
+              Principal: 
+                Service: 
+                  - "apigateway.amazonaws.com"
+              Action: 
+                - "sts:AssumeRole"
+        Path: "/"
+        Policies:
+          - PolicyName: "root"
+            PolicyDocument: 
+              Version: "2012-10-17"
+              Statement: 
+                - Effect: "Allow"
+                  Action: "dynamodb:Query"
+                  Resource: !GetAtt RestaurantFeesTable.Arn
+  Outputs:
+    RestaurantFeesTableName:
+      Value: !Ref RestaurantFeesTable

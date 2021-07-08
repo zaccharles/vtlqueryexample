@@ -1,0 +1,64 @@
+{
+    "PUT_TABLE_NAME_HERE__FROM_DEPLOY_OUTPUT": [
+        {
+            "PutRequest": {
+                "Item": {
+                    "PK": {
+                        "S": "uk#123"
+                    },
+                    "SK": {
+                        "S": "fee#bagFee"
+                    },
+                    "Detail": {
+                        "S": "{\"serviceTypes\":{\"default\":{\"amount\":0},\"collection\":{\"amount\":5},\"delivery\":{\"amount\":10}}}"
+                    }
+                }
+            }
+        },
+        {
+            "PutRequest": {
+                "Item": {
+                    "PK": {
+                        "S": "uk#123"
+                    },
+                    "SK": {
+                        "S": "fee#serviceFee"
+                    },
+                    "Detail": {
+                        "S": "{\"serviceTypes\":{\"default\":{\"fixed\":{\"amount\":0}},\"collection\":{\"fixed\":{\"amount\":0}},\"delivery\":{\"percentage\":{\"percent\":0.05,\"minAmount\":0.5,\"maxAmount\":1.99}}}}"
+                    }
+                }
+            }
+        },
+        {
+            "PutRequest": {
+                "Item": {
+                    "PK": {
+                        "S": "uk#456"
+                    },
+                    "SK": {
+                        "S": "fee#bagFee"
+                    },
+                    "Detail": {
+                        "S": "{\"serviceTypes\":{\"default\":{\"amount\":0},\"collection\":{\"amount\":5},\"delivery\":{\"amount\":10}}}"
+                    }
+                }
+            }
+        },
+        {
+            "PutRequest": {
+                "Item": {
+                    "PK": {
+                        "S": "uk#456"
+                    },
+                    "SK": {
+                        "S": "meta#deliveryModel"
+                    },
+                    "Detail": {
+                        "S": "Scoober"
+                    }
+                }
+            }
+        }
+    ]
+}
